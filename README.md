@@ -41,6 +41,10 @@ anything that matters. Some things to know:
   of the files. It doesn't protect against software running as you, which
   can ask the Keychain for the key. Automations (`automations.json`) are
   not encrypted.
+- Shell commands are not sandboxed by the operating system. A command the
+  agent runs can read and change anything your user account can. At **Full**
+  autonomy the agent, and any enabled plugin, runs shell commands without
+  asking; the lower settings ask first.
 - Enabling a plugin lets it run any code on your Mac. Only enable plugins you
   have read.
 - Commands the agent runs see your environment variables. Variables that
@@ -48,6 +52,8 @@ anything that matters. Some things to know:
   and the model provider.
 - Your messages and the files the agent reads are sent to the model API you
   configure.
+- `web_search` reads DuckDuckGo's HTML results page. It can break if
+  DuckDuckGo changes that page or limits requests.
 
 The app is provided as is, without warranty (see LICENSE).
 

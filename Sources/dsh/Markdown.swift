@@ -1,7 +1,8 @@
 import AppKit
 
 /// Compact markdown → NSAttributedString renderer. Handles: headings, **bold**, *italic*,
-/// `code`, ``` fenced blocks, lists (-/*, 1.), links, > quotes, --- rules, tables (plain).
+/// `code`, ``` fenced blocks, lists (-/*, 1.), links, > quotes, --- rules. GitHub-style
+/// tables are split out by `splitTables` and drawn by TableBlockView.
 enum MD {
 
     // Compiled once: these run per line/per token, not per render.
@@ -13,7 +14,8 @@ enum MD {
     /// of balanced parentheses (Wikipedia-style links).
     private static let inlinePatterns = [
         "`([^`]+)`",
-        "\\*\\*([^*]+)\\*\\*",
+        // Lazy, so `**a *b* c**` keeps its inner italic.
+        "\\*\\*(.+?)\\*\\*",
         "~~([^~]+)~~",
         "\\*([^*\\s][^*]*)\\*",
         "\\[([^\\]]+)\\]\\(((?:[^()\\\\]|\\\\.|\\([^()]*\\))+)\\)",
@@ -144,15 +146,23 @@ enum MD {
             case 0:
                 a[.font] = mono; a[.backgroundColor] = palette.codeBg
                 result.append(NSAttributedString(string: " \(inner) ", attributes: a))
+            // Emphasis recurses, so `code`, links, and other emphasis inside
+            // it still render; inner traits stack on the outer font.
             case 1:
-                a[.font] = NSFont.systemFont(ofSize: font.pointSize, weight: .semibold)
-                result.append(NSAttributedString(string: inner, attributes: a))
+                // Semibold, as before; keeps an outer italic.
+                var bold = NSFont.systemFont(ofSize: font.pointSize, weight: .semibold)
+                if font.fontDescriptor.symbolicTraits.contains(.italic) {
+                    bold = NSFont(descriptor: bold.fontDescriptor.withSymbolicTraits(
+                        bold.fontDescriptor.symbolicTraits.union(.italic)), size: font.pointSize) ?? bold
+                }
+                result.append(inline(inner, font: bold, palette: palette, extra: without(a, .font)))
             case 2:
                 a[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
-                result.append(NSAttributedString(string: inner, attributes: a))
+                result.append(inline(inner, font: font, palette: palette, extra: without(a, .font)))
             case 3:
-                a[.font] = NSFont(descriptor: font.fontDescriptor.withSymbolicTraits(.italic), size: font.pointSize) ?? font
-                result.append(NSAttributedString(string: inner, attributes: a))
+                let italic = NSFont(descriptor: font.fontDescriptor.withSymbolicTraits(
+                    font.fontDescriptor.symbolicTraits.union(.italic)), size: font.pointSize) ?? font
+                result.append(inline(inner, font: italic, palette: palette, extra: without(a, .font)))
             default:
                 let url = m.numberOfRanges > 2 ? ns.substring(with: m.range(at: 2)) : ""
                 // Only real web URLs become links; other schemes render
@@ -171,7 +181,107 @@ enum MD {
         return result
     }
 
+    private static func without(_ attrs: [NSAttributedString.Key: Any],
+                                _ key: NSAttributedString.Key) -> [NSAttributedString.Key: Any] {
+        var copy = attrs; copy[key] = nil; return copy
+    }
+
     private static func appendPlain(_ out: NSMutableAttributedString, _ s: String, _ attrs: [NSAttributedString.Key: Any]) {
         if !s.isEmpty { out.append(NSAttributedString(string: s, attributes: attrs)) }
+    }
+}
+
+// MARK: - Tables (GitHub-flavored)
+
+extension MD {
+    struct Table: Equatable {
+        var header: [String]
+        var alignments: [NSTextAlignment]
+        var rows: [[String]]
+    }
+
+    enum Segment: Equatable {
+        case prose(String)
+        /// `source` is the table's original markdown (for caching and copy).
+        case table(Table, source: String)
+    }
+
+    /// Inline markdown (`code`, **bold**, *italic*, links, ~~strike~~) for
+    /// text that isn't a whole block, e.g. a table cell.
+    static func renderInline(_ text: String, fontSize: CGFloat, weight: NSFont.Weight = .regular,
+                             palette: Palette = Palette()) -> NSAttributedString {
+        inline(text, font: NSFont.systemFont(ofSize: fontSize, weight: weight), palette: palette)
+    }
+
+    /// Splits prose into prose and table segments. A table is a header row
+    /// with pipes, then a delimiter row (`|---|:--:|`) with the same number of
+    /// cells, then body rows up to the first blank or pipe-less line. Text
+    /// without tables comes back as one unchanged prose segment.
+    static func splitTables(_ text: String) -> [Segment] {
+        let lines = text.components(separatedBy: "\n")
+        var out: [Segment] = []
+        var prose: [String] = []
+        var i = 0
+        while i < lines.count {
+            let header = lines[i]
+            if i + 1 < lines.count, header.contains("|"),
+               let alignments = delimiterAlignments(lines[i + 1]),
+               case let headerCells = cells(header), headerCells.count == alignments.count {
+                if !prose.isEmpty { out.append(.prose(prose.joined(separator: "\n"))); prose = [] }
+                var rows: [[String]] = []
+                var j = i + 2
+                while j < lines.count, lines[j].contains("|"),
+                      !lines[j].trimmingCharacters(in: .whitespaces).isEmpty {
+                    var row = cells(lines[j])
+                    // GitHub pads short rows and drops extra cells.
+                    if row.count < headerCells.count { row += Array(repeating: "", count: headerCells.count - row.count) }
+                    rows.append(Array(row.prefix(headerCells.count)))
+                    j += 1
+                }
+                let source = lines[i..<j].joined(separator: "\n")
+                out.append(.table(Table(header: headerCells, alignments: alignments, rows: rows), source: source))
+                i = j
+                continue
+            }
+            prose.append(header)
+            i += 1
+        }
+        if !prose.isEmpty { out.append(.prose(prose.joined(separator: "\n"))) }
+        return out.isEmpty ? [.prose(text)] : out
+    }
+
+    /// Cells of one table row: outer pipes optional, `\|` is a literal pipe.
+    static func cells(_ line: String) -> [String] {
+        var s = line.trimmingCharacters(in: .whitespaces)
+        if s.hasPrefix("|") { s.removeFirst() }
+        if s.hasSuffix("|") && !s.hasSuffix("\\|") { s.removeLast() }
+        var cells: [String] = [], current = ""
+        var escaped = false
+        for ch in s {
+            if escaped { current.append(ch == "|" ? "|" : "\\\(ch)"); escaped = false; continue }
+            if ch == "\\" { escaped = true; continue }
+            if ch == "|" { cells.append(current); current = ""; continue }
+            current.append(ch)
+        }
+        if escaped { current.append("\\") }
+        cells.append(current)
+        return cells.map { $0.trimmingCharacters(in: .whitespaces) }
+    }
+
+    /// Column alignments if `line` is a delimiter row, else nil.
+    private static func delimiterAlignments(_ line: String) -> [NSTextAlignment]? {
+        guard line.contains("-") else { return nil }
+        let parts = cells(line)
+        var result: [NSTextAlignment] = []
+        for p in parts {
+            guard !p.isEmpty, p.allSatisfy({ $0 == "-" || $0 == ":" }), p.contains("-"),
+                  !p.dropFirst().dropLast().contains(":") else { return nil }
+            switch (p.hasPrefix(":"), p.hasSuffix(":")) {
+            case (true, true): result.append(.center)
+            case (false, true): result.append(.right)
+            default: result.append(.natural)
+            }
+        }
+        return result
     }
 }

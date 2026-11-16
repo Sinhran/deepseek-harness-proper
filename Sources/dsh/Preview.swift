@@ -46,7 +46,14 @@ enum Preview {
             // A second turn, so the fixture shows both turn-tail states:
             // earlier turn (Branch + Rewind on hover), latest (Branch + Regenerate).
             Message(role: .user, content: "Also mark which models support tool calls.", turn: 2),
-            Message(role: .assistant, content: "Done. Models that support tool calls now show a small wrench badge in the picker.", turn: 2),
+            Message(role: .assistant, content: """
+                Done. Models that support tool calls now show a small wrench badge in the picker. **Check `supportsTools` first**, then:
+
+                | Model | Tool calls | Context |
+                |:------|:----------:|--------:|
+                | `deepseek-chat` | yes | 128k |
+                | `deepseek-reasoner` | *no* | 128k |
+                """, turn: 2),
         ]
         // Mirror the messages into the API transcript the way AgentLoop.run
         // does, so turn-level actions (Branch, Rewind) see a consistent session.

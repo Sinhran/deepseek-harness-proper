@@ -69,14 +69,18 @@ enum WebText {
     static func search(query: String, limit: Int) async throws -> String {
         var comps = URLComponents(string: "https://html.duckduckgo.com/html/")!
         comps.queryItems = [URLQueryItem(name: "q", value: query)]
-        var req = URLRequest(url: comps.url!, timeoutInterval: 20)
-        req.setValue("Mozilla/5.0 (Macintosh) dsh-proper/0.2", forHTTPHeaderField: "User-Agent")
-        let (data, resp) = try await URLSession.shared.data(for: req)
-        guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw ToolError.failed("search failed: HTTP \((resp as? HTTPURLResponse)?.statusCode ?? -1)")
+        // Same path as web_fetch: resolved, non-public addresses refused,
+        // addresses pinned, and every redirect hop re-checked.
+        let response = try await Tools.fetchPinned(comps.url!, cap: 2_000_000)
+        guard (200..<300).contains(response.status) else {
+            throw ToolError.failed("search failed: HTTP \(response.status)")
         }
-        guard let html = String(data: data, encoding: .utf8) else { return "search failed" }
+        return try parseResults(html: response.body, limit: limit)
+    }
 
+    /// Extracts numbered "title / url / snippet" entries from DuckDuckGo's
+    /// HTML results page. Separate from the fetch so it can be tested offline.
+    static func parseResults(html: String, limit: Int) throws -> String {
         var results: [String] = []
         // result links: class="result__a" href="//duckduckgo.com/l/?uddg=<encoded>&rut=..."
         let linkRx = try NSRegularExpression(pattern: "<a[^>]+class=\"result__a\"[^>]+href=\"([^\"]+)\"[^>]*>(.*?)</a>")

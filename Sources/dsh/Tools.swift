@@ -494,7 +494,7 @@ enum Tools {
         return text.isEmpty ? "(empty response)" : text
     }
 
-    private struct WebResponse {
+    struct WebResponse {
         var status: Int
         var url: URL
         var headers: [String: String]
@@ -542,7 +542,9 @@ enum Tools {
         return lines.dropFirst().allSatisfy { $0.contains(":") }
     }
 
-    private static func fetchPinned(_ initial: URL, cap: Int) async throws -> WebResponse {
+    /// The only way the app's tools reach the network: every hop (including
+    /// redirects) is resolved, checked against non-public ranges, and pinned.
+    static func fetchPinned(_ initial: URL, cap: Int) async throws -> WebResponse {
         var url = initial
         var visited = Set<String>()
         for _ in 0...5 {

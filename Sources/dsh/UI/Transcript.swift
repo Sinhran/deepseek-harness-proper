@@ -22,7 +22,18 @@ final class MessageView: View {
         var isCode: Bool
         var language: String
         var text: String
+        /// Set for a markdown table split out of prose; `text` is its source.
+        var table: MD.Table? = nil
+        /// Long prose is cut into chunks at blank lines; a chunk that the next
+        /// one continues sits flush against it (spacing 0), which measures
+        /// identical to one label, since each label's trailing newline already
+        /// takes the blank line's height.
+        var continues = false
     }
+    /// Prose longer than this is chunked so streaming re-renders only the
+    /// tail (measured: one 60k-char label costs ~45ms per tick).
+    static let chunkThreshold = 4_000
+    static let chunkTarget = 2_000
     /// Rendered block views keyed by (index, source text): streaming only
     /// grows the tail block, so earlier blocks are reused instead of
     /// rebuilding every code block every 45ms.
@@ -221,7 +232,7 @@ final class MessageView: View {
             return
         }
         let blocks = Self.contentBlocks(text)
-        if blocks.count == 1, !blocks[0].isCode, body.arrangedSubviews.count == 1,
+        if blocks.count == 1, !blocks[0].isCode, blocks[0].table == nil, body.arrangedSubviews.count == 1,
            let label = body.arrangedSubviews.first as? WrappingLabel {
             copyButton?.isHidden = false
             label.attributedStringValue = MD.render(blocks[0].text.trimmingCharacters(in: .newlines), fontSize: 14)
@@ -229,11 +240,13 @@ final class MessageView: View {
         }
         copyButton?.isHidden = false
         var arranged: [NSView] = []
+        var continues: [Bool] = []
         var cache: [(key: String, view: NSView)] = []
         for (i, block) in blocks.enumerated() where !block.text.isEmpty || block.isCode {
             // Cheap key: position + kind + length + hash. The full block
             // text made every 45ms render tick copy every code block.
-            let key = "\(i)\u{0}\(block.isCode)\u{0}\(block.language)\u{0}\(block.text.count)\u{0}\(block.text.hashValue)"
+            let key = "\(i)\u{0}\(block.isCode)\u{0}\(block.table != nil)\u{0}\(block.language)\u{0}\(block.text.count)\u{0}\(block.text.hashValue)"
+            continues.append(block.continues)
             if let hit = blockCache.first(where: { $0.key == key }) {
                 arranged.append(hit.view); cache.append(hit)
             } else {
@@ -250,16 +263,44 @@ final class MessageView: View {
                 view.widthAnchor.constraint(equalTo: body.widthAnchor).isActive = true
             }
         }
+        // A cached chunk can become "continued" once the next one starts.
+        for (view, flush) in zip(arranged, continues) {
+            body.setCustomSpacing(flush ? 0 : NSStackView.useDefaultSpacing, after: view)
+        }
         blockCache = cache
     }
 
     private static func blockView(_ block: ContentBlock) -> NSView {
-        if !block.isCode {
+        if let table = block.table {
+            return TableBlockView(table: table, source: block.text)
+        } else if !block.isCode {
             let label = WrappingLabel()
             label.attributedStringValue = MD.render(block.text.trimmingCharacters(in: .newlines), fontSize: 14)
             return label
         } else {
             return CodeBlockView(language: block.language, code: block.text)
+        }
+    }
+
+    /// Cuts long prose at blank lines into chunks of at least `chunkTarget`
+    /// characters. Boundaries depend only on the text before them, so they
+    /// stay put while the answer streams and finished chunks stay cached.
+    /// Safe because MD.render is line-local once code fences are split out.
+    private static func chunked(_ text: String) -> [ContentBlock] {
+        guard text.count > chunkThreshold else { return [ContentBlock(isCode: false, language: "", text: text)] }
+        var chunks: [String] = []
+        var current: [Substring] = []
+        var length = 0
+        for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
+            if line.trimmingCharacters(in: .whitespaces).isEmpty, length >= chunkTarget {
+                chunks.append(current.joined(separator: "\n")); current = []; length = 0
+                continue // this blank line is the seam
+            }
+            current.append(line); length += line.count + 1
+        }
+        chunks.append(current.joined(separator: "\n"))
+        return chunks.enumerated().map { i, chunk in
+            ContentBlock(isCode: false, language: "", text: chunk, continues: i < chunks.count - 1)
         }
     }
 
@@ -303,7 +344,17 @@ final class MessageView: View {
         } else if !prose.isEmpty {
             blocks.append(ContentBlock(isCode: false, language: "", text: prose))
         }
-        return blocks
+        // Tables become their own blocks: drawn as a grid, cached separately.
+        return blocks.flatMap { block -> [ContentBlock] in
+            guard !block.isCode else { return [block] }
+            return MD.splitTables(block.text).flatMap { segment -> [ContentBlock] in
+                switch segment {
+                case .prose(let text): return Self.chunked(text)
+                case .table(let table, let source):
+                    return [ContentBlock(isCode: false, language: "", text: source, table: table)]
+                }
+            }
+        }
     }
 
     // MARK: - steps

@@ -63,7 +63,10 @@ section rhythm 14-16. Hairlines 0.5pt (`borderL1`/`borderL2`). Cards radius
   Focused card strokes accent.
 - `MessageView`: user right-aligned bubble (radius 14, 10/16 padding, max
   525px or 82% column); assistant fish mark plus name header, reasoning
-  disclosure, tool-step rows, markdown, code blocks with banner plus copy.
+  disclosure, tool-step rows, markdown, code blocks with banner plus copy, and
+  GitHub-style tables (hairline card, tinted header, row rules, column
+  alignment; wide tables scroll sideways). Long prose is chunked at blank
+  lines so streaming re-renders only the tail.
 - Tool-step rows: the tool glyph stays for the row's life (status is the
   tint, errors swap to an alert glyph); title is verb plus file name, full
   path in the tooltip; durations hide under 100 ms, then "340 ms", "1.2s".
