@@ -1,0 +1,27 @@
+name: CI
+on: [push, pull_request]
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build-test:
+    # macos-14 was retired (runs failed instantly: "configuration not supported").
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      # Pin the toolchain explicitly: XCTest ships only with full Xcode, and
+      # the image default changes without notice.
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+      - name: Vendor check
+        run: python3 scripts/vendor-agent-profiles.py --check
+      - name: Lint resources
+        run: plutil -lint Resources/Info.plist Resources/DSH.entitlements
+      - name: Build
+        run: swift build -c release
+      - name: Test
+        run: make smoke
+      - name: App bundle
+        run: make

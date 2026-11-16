@@ -1,0 +1,23 @@
+dsh-proper
+Copyright 2026 Sinhran
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This product includes material from DeepSeek Harness
+(https://github.com/deepseek-ai/deepseek-harness), Copyright (c) 2026
+DeepSeek, licensed under the MIT License. The affected files and the full
+MIT license text are listed in THIRD_PARTY_NOTICES.md.
+
+Unofficial community project: dsh-proper is not affiliated with, endorsed
+by, or sponsored by DeepSeek. DeepSeek, DeepSeek Harness, and the whale
+artwork belong to their respective rights holders. No trademark rights are
+granted by this project's license (Apache License 2.0, Section 6).
+
+The window layout is inspired by the Claude desktop app by Anthropic; no
+code or assets from it are included. dsh-proper is not affiliated with
+Anthropic. Claude and Anthropic are trademarks of Anthropic, PBC.
+
+The web_search tool uses DuckDuckGo's HTML search endpoint. dsh-proper is
+not affiliated with Duck Duck Go, Inc.
+
+Further credits: THIRD_PARTY_NOTICES.md, section "Acknowledgements".

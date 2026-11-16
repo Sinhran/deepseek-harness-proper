@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <key>CFBundleExecutable</key>
+    <string>dsh</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+    <key>CFBundleIdentifier</key>
+    <string>local.dsh-proper</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>DeepSeek Harness (Proper)</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>NSHumanReadableCopyright</key>
+    <string>© 2026 Sinhran. Apache License 2.0. Unofficial; not affiliated with DeepSeek.</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.2.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>13.0</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSPrincipalClass</key>
+    <string>NSApplication</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>Voice input transcribes your prompt locally via Speech Recognition.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Voice input needs microphone access to transcribe your prompt.</string>
+</dict>
+</plist>
