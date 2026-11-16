@@ -10,6 +10,9 @@ struct ToolContext {
     var scheduler: Scheduler?
     var plugins: PluginEngine?
     var makeSubloop: (() -> AgentLoop)? = nil
+    /// Confinement for shell commands. The loop sets `.fullAccess` only for
+    /// a call the user approved to run outside the sandbox.
+    var sandbox: SandboxMode = Settings.shared.sandboxMode
 
     func resolveChecked(_ path: String) throws -> String {
         try Self.resolveChecked(path, within: workspace)
@@ -126,12 +129,13 @@ enum Tools {
     // MARK: bash
 
     static let bash = Tool(
-        spec: ToolSpec(name: "bash", description: "Run a shell command in the workspace. Returns stdout+stderr.", parameters: [
+        spec: ToolSpec(name: "bash", description: "Run a shell command in the workspace. Returns stdout+stderr. Commands run in an OS sandbox: by default they can change files only in the workspace and temporary folders, and can't read credentials (~/.ssh, ~/.aws, Keychains, browser data).", parameters: [
             "type": "object",
             "properties": [
                 "command": ["type": "string", "description": "The command to run"],
                 "description": ["type": "string", "description": "One-line description of what this does"],
                 "timeout": ["type": "integer", "description": "Seconds before the command is killed (default 120)"],
+                "unsandboxed": ["type": "boolean", "description": "Run this one command outside the sandbox. Always asks the user, even at full autonomy. Use only when the sandbox blocked something the task truly needs (e.g. git push over SSH, installing into ~/), and say why in description."],
             ],
             "required": ["command"],
         ]),
@@ -139,7 +143,8 @@ enum Tools {
     ) { args, ctx in
         guard let cmd = args.str("command") else { throw ToolError.missing("command") }
         let timeout = TimeInterval(min(max(args.int("timeout") ?? 120, 1), 600))
-        return try await Shell.run(cmd, cwd: ctx.workspace, timeout: timeout)
+        return try await Shell.run(cmd, cwd: ctx.workspace, timeout: timeout,
+                                   sandbox: .current(workspace: ctx.workspace, mode: ctx.sandbox))
     }
 
     // MARK: read

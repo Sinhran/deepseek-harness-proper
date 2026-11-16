@@ -3,7 +3,7 @@ import AppKit
 /// Official-style settings shell: left section nav, right content cards (20px radius).
 /// Sections: General, Models & API, Agent loop, Plugins, Automations, Session log.
 final class SettingsWindowController: NSWindowController {
-    private enum Section: Int, CaseIterable {
+    enum Section: Int, CaseIterable {
         case general, models, agent, plugins, automations, log
         var title: String {
             switch self {
@@ -31,7 +31,18 @@ final class SettingsWindowController: NSWindowController {
     private let baseField = NSTextField()
     private let autonomy = NSPopUpButton()
     private let profilePopup = NSPopUpButton()
-    private let profileCaption = T.label("", T.ui(12), T.labelSecondary)
+    private let sandboxPopup = NSPopUpButton()
+    private let secretsSwitch = NSSwitch()
+    private let networkSwitch = NSSwitch()
+    private let sandboxCaption = SettingsWindowController.caption()
+
+    /// Secondary text that wraps instead of truncating.
+    private static func caption() -> WrappingLabel {
+        let l = WrappingLabel()
+        l.font = T.ui(12); l.textColor = T.labelSecondary
+        return l
+    }
+    private let profileCaption = SettingsWindowController.caption()
     private let status = T.label("", T.ui(12), T.labelSecondary)
     private let workspaceLabel = T.label("", T.ui(13), T.labelPrimary)
     private let appearanceControl = NSSegmentedControl(labels: ["System", "Light", "Dark"], trackingMode: .selectOne, target: nil, action: nil)
@@ -146,6 +157,17 @@ final class SettingsWindowController: NSWindowController {
         profilePopup.font = T.ui(13)
         updateProfileCaption()
         autonomy.font = T.ui(13)
+        sandboxPopup.addItems(withTitles: SandboxMode.allCases.map(\.label))
+        sandboxPopup.selectItem(at: SandboxMode.allCases.firstIndex(of: Settings.shared.sandboxMode) ?? 1)
+        sandboxPopup.target = self; sandboxPopup.action = #selector(sandboxChanged)
+        sandboxPopup.font = T.ui(13)
+        secretsSwitch.state = Settings.shared.sandboxProtectSecrets ? .on : .off
+        secretsSwitch.target = self; secretsSwitch.action = #selector(sandboxChanged)
+        secretsSwitch.setAccessibilityLabel("Protect credentials")
+        networkSwitch.state = Settings.shared.sandboxNetwork ? .on : .off
+        networkSwitch.target = self; networkSwitch.action = #selector(sandboxChanged)
+        networkSwitch.setAccessibilityLabel("Network access for commands")
+        updateSandboxCaption()
         keyField.widthAnchor.constraint(greaterThanOrEqualToConstant: 240).isActive = true
         baseField.widthAnchor.constraint(greaterThanOrEqualToConstant: 240).isActive = true
         workspaceLabel.stringValue = Settings.shared.workspace
@@ -181,7 +203,7 @@ final class SettingsWindowController: NSWindowController {
 
     // MARK: - section switching
 
-    private func select(_ s: Section) {
+    func select(_ s: Section) {
         for (sec, b) in sectionButtons {
             b.selected = sec == s
             b.tint = sec == s ? T.labelPrimary : T.labelSecondary
@@ -275,7 +297,9 @@ final class SettingsWindowController: NSWindowController {
         switch s {
         case .general: stack.addArrangedSubview(generalCard())
         case .models: stack.addArrangedSubview(modelsCard())
-        case .agent: stack.addArrangedSubview(agentCard())
+        case .agent:
+            stack.addArrangedSubview(agentCard())
+            stack.addArrangedSubview(sandboxCard())
         case .plugins: stack.addArrangedSubview(pluginsCard())
         case .automations: stack.addArrangedSubview(automationsCard())
         case .log: stack.addArrangedSubview(logCard())
@@ -368,6 +392,16 @@ final class SettingsWindowController: NSWindowController {
             profileCaption,
         ], spacing: 14)
         return wrapSection(heading("Agent loop", "Autonomy and approval behavior."), content)
+    }
+
+    private func sandboxCard() -> NSView {
+        let content = card([
+            row("Mode", "Where shell commands can make changes.", control: sandboxPopup),
+            row("Protect credentials", "Block ~/.ssh, ~/.aws, Keychains, mail, browser data.", control: secretsSwitch),
+            row("Network access", "Commands can reach the internet.", control: networkSwitch),
+            sandboxCaption,
+        ], spacing: 14)
+        return wrapSection(heading("Sandbox", "What shell commands and plugins can touch."), content)
     }
 
     private func updateProfileCaption() {
@@ -490,6 +524,25 @@ final class SettingsWindowController: NSWindowController {
             updateStatus()
         }
     }
+    @objc private func sandboxChanged() {
+        let i = sandboxPopup.indexOfSelectedItem
+        if SandboxMode.allCases.indices.contains(i) { Settings.shared.sandboxMode = SandboxMode.allCases[i] }
+        Settings.shared.sandboxProtectSecrets = secretsSwitch.state == .on
+        Settings.shared.sandboxNetwork = networkSwitch.state == .on
+        updateSandboxCaption()
+        NotificationCenter.default.post(name: .settingsChanged, object: nil)
+    }
+
+    private func updateSandboxCaption() {
+        let mode = Settings.shared.sandboxMode
+        let confined = mode != .fullAccess
+        secretsSwitch.isEnabled = confined; networkSwitch.isEnabled = confined
+        var text = mode.detail + (confined ? " Enforced by macOS, even after you approve a command." : "")
+        if confined { text += " The agent can ask to run one command outside it; you're asked every time." }
+        if confined && !SandboxPolicy.isAvailable { text = "The sandbox isn't working on this Mac, so shell commands are blocked. Choose Full access to run them unconfined." }
+        sandboxCaption.stringValue = text
+    }
+
     @objc private func autonomyChanged() {
         let i = autonomy.indexOfSelectedItem
         guard Autonomy.allCases.indices.contains(i) else { return }

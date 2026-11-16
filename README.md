@@ -41,10 +41,16 @@ anything that matters. Some things to know:
   of the files. It doesn't protect against software running as you, which
   can ask the Keychain for the key. Automations (`automations.json`) are
   not encrypted.
-- Shell commands are not sandboxed by the operating system. A command the
-  agent runs can read and change anything your user account can. At **Full**
-  autonomy the agent, and any enabled plugin, runs shell commands without
-  asking; the lower settings ask first.
+- Shell commands run in a macOS sandbox (Seatbelt), even after you approve
+  them. By default they can change files only in the workspace and temporary
+  folders, and can't read credentials (`~/.ssh`, `~/.aws`, Keychains, mail,
+  browser data). They can read the rest of your files and use the network;
+  both are adjustable in Settings → Agent loop → Sandbox. The agent can ask to
+  run a single command outside the sandbox, and you're asked every time, at
+  every autonomy level. Plugin commands are sandboxed the same way and can't
+  ask. Choosing **Full access** turns the sandbox off.
+- At **Full** autonomy the agent runs sandboxed commands without asking; the
+  lower settings ask first.
 - Enabling a plugin lets it run any code on your Mac. Only enable plugins you
   have read.
 - Commands the agent runs see your environment variables. Variables that

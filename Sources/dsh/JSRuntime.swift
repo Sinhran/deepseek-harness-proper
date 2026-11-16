@@ -172,7 +172,10 @@ final class JSRuntime: @unchecked Sendable { // all JS state is touched only on 
                 return ["", true]
             }
             // Callers pass Node-style milliseconds; runSync takes seconds.
-            let out = (try? Shell.runSync(cmd, cwd: dir.path, timeout: timeout.doubleValue / 1000)) ?? ""
+            // Sandboxed like the agent's own commands (its folder writable
+            // too), and plugins can never ask to run outside it.
+            let policy = SandboxPolicy.current(workspace: Settings.shared.workspace, extraRoots: [dir.path])
+            let out = (try? Shell.runSync(cmd, cwd: dir.path, timeout: timeout.doubleValue / 1000, sandbox: policy)) ?? ""
             return [out, false]
         }
         let logFn: @convention(block) (String) -> Void = { msg in

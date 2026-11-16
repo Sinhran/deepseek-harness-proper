@@ -259,7 +259,7 @@ enum Smoke {
 
         // Shell must drain pipes concurrently: >64KB before exit used to deadlock until timeout.
         let shellSem = DispatchSemaphore(value: 0); var shellOut = ""
-        Task { shellOut = (try? await Shell.run("yes | head -c 200000", cwd: "/tmp", timeout: 10)) ?? ""; shellSem.signal() }
+        Task { shellOut = (try? await Shell.run("yes | head -c 200000", cwd: "/tmp", timeout: 10, sandbox: .current(workspace: "/tmp"))) ?? ""; shellSem.signal() }
         check("shell large output completed", shellSem.wait(timeout: .now() + 15) == .success)
         check("shell large output no deadlock", shellOut.count > 100_000, "\(shellOut.count)")
         let capSem = DispatchSemaphore(value: 0); var outputWasCapped = false

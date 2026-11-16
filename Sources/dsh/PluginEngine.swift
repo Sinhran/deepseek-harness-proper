@@ -140,7 +140,11 @@ final class PluginEngine {
 
     private func runNative(_ tool: String, dir: URL, bin: String, args: [String: Any]) async throws -> String {
         guard let binURL = Self.confined(dir, bin) else { throw ToolError.failed("plugin binary escapes plugin dir") }
-        let result = try await Shell.captureAsync(executable: binURL, arguments: [tool],
+        // Native plugins run in the same sandbox as the agent's commands.
+        let policy = SandboxPolicy.current(workspace: Settings.shared.workspace, extraRoots: [dir.path])
+        if policy.isConfined && !SandboxPolicy.isAvailable { throw ToolError.failed(SandboxPolicy.unavailableMessage) }
+        let (exe, argv) = policy.wrap(binURL, [tool])
+        let result = try await Shell.captureAsync(executable: exe, arguments: argv,
                                                   input: JSON.compact(args).data(using: .utf8), timeout: 30)
         if result.timedOut { throw ToolError.failed("plugin exceeded 30s") }
         if result.status != 0 {
@@ -442,7 +446,9 @@ final class PluginEngine {
         var lastErr = ""
         let attempts = 3
         for attempt in 1...attempts {
-            let out = try await Shell.run("xcrun swiftc -O -o bin plugin.swift 2>&1", cwd: dir.path, timeout: 120)
+            // The app's own fixed compile step (not a model-chosen command);
+            // the compiler needs its caches, so it runs unconfined.
+            let out = try await Shell.run("xcrun swiftc -O -o bin plugin.swift 2>&1", cwd: dir.path, timeout: 120, sandbox: nil)
             if FileManager.default.isExecutableFile(atPath: bin.path) {
                 // Transpiling leaves the JS sandbox: the binary is unconfined
                 // native code, written by a model that read the plugin's own

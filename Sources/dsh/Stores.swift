@@ -125,6 +125,19 @@ final class Settings {
         get { Autonomy(rawValue: d.string(forKey: "autonomy") ?? "autoRead") ?? .autoRead }
         set { d.set(newValue.rawValue, forKey: "autonomy") }
     }
+    /// Defaults: workspace-only writes, credentials protected, network on.
+    var sandboxMode: SandboxMode {
+        get { SandboxMode(rawValue: d.string(forKey: "sandboxMode") ?? "") ?? .workspaceWrite }
+        set { d.set(newValue.rawValue, forKey: "sandboxMode") }
+    }
+    var sandboxNetwork: Bool {
+        get { d.object(forKey: "sandboxNetwork") as? Bool ?? true }
+        set { d.set(newValue, forKey: "sandboxNetwork") }
+    }
+    var sandboxProtectSecrets: Bool {
+        get { d.object(forKey: "sandboxProtectSecrets") as? Bool ?? true }
+        set { d.set(newValue, forKey: "sandboxProtectSecrets") }
+    }
     var workspace: String {
         get {
             if Preview.enabled || Self.isTestRun { return FileManager.default.currentDirectoryPath }

@@ -256,17 +256,34 @@ enum Shell {
         }
     }
 
-    static func run(_ command: String, cwd: String, timeout: TimeInterval) async throws -> String {
-        let result = try await captureAsync(executable: URL(fileURLWithPath: "/bin/zsh"),
-                                            arguments: ["-c", command], cwd: cwd,
-                                            timeout: timeout)
-        return combined(result, timeout: timeout, includeStatus: true)
+    /// Runs `command` with zsh. `sandbox` confines it (nil only for the
+    /// app's own fixed commands, never for model- or plugin-chosen ones).
+    static func run(_ command: String, cwd: String, timeout: TimeInterval,
+                    sandbox: SandboxPolicy?) async throws -> String {
+        let (exe, args) = try launch(command, sandbox)
+        let result = try await captureAsync(executable: exe, arguments: args, cwd: cwd, timeout: timeout)
+        return annotate(combined(result, timeout: timeout, includeStatus: true), result, sandbox)
     }
 
-    static func runSync(_ command: String, cwd: String, timeout: TimeInterval) throws -> String {
-        let result = try capture(executable: URL(fileURLWithPath: "/bin/zsh"),
-                                 arguments: ["-c", command], cwd: cwd, timeout: timeout)
-        return combined(result, timeout: timeout, includeStatus: false)
+    static func runSync(_ command: String, cwd: String, timeout: TimeInterval,
+                        sandbox: SandboxPolicy?) throws -> String {
+        let (exe, args) = try launch(command, sandbox)
+        let result = try capture(executable: exe, arguments: args, cwd: cwd, timeout: timeout)
+        return annotate(combined(result, timeout: timeout, includeStatus: false), result, sandbox)
+    }
+
+    private static func launch(_ command: String, _ sandbox: SandboxPolicy?) throws -> (URL, [String]) {
+        let zsh = URL(fileURLWithPath: "/bin/zsh")
+        guard let sandbox, sandbox.isConfined else { return (zsh, ["-c", command]) }
+        // Fail closed: a broken sandbox must not silently become no sandbox.
+        guard SandboxPolicy.isAvailable else { throw ToolError.failed(SandboxPolicy.unavailableMessage) }
+        return sandbox.wrap(zsh, ["-c", command])
+    }
+
+    private static func annotate(_ text: String, _ result: ProcessResult, _ sandbox: SandboxPolicy?) -> String {
+        guard let sandbox, result.status != 0,
+              let hint = SandboxPolicy.denialHint(for: result.stdout + result.stderr, policy: sandbox) else { return text }
+        return text + "\n" + hint
     }
 }
 

@@ -391,7 +391,14 @@ final class AgentLoop {
         guard let tool = Tools.all().first(where: { $0.spec.name == name }) else {
             throw ToolError.failed("unknown tool \(name)")
         }
-        if Tools.category(tool.category, needsApproval: autonomy) {
+        var ctx = ctx
+        if name == "bash", args.bool("unsandboxed"), ctx.sandbox != .fullAccess {
+            // Escaping the sandbox is its own decision: asked every time,
+            // whatever the autonomy level. Unattended runs deny it.
+            let ok = await approve(name, "Outside the sandbox: " + Self.summarize(call: call))
+            if !ok { throw ToolError.failed("The user declined running this command outside the sandbox.") }
+            ctx.sandbox = .fullAccess
+        } else if Tools.category(tool.category, needsApproval: autonomy) {
             let ok = await approve(name, Self.summarize(call: call))
             if !ok { throw ToolError.denied }
         }

@@ -229,7 +229,7 @@ final class AuditRegressionTests: XCTestCase {
 
     func testBashOutputSurvivesInvalidUTF8() async throws {
         let ws = try makeTempDir("bash-latin1")
-        let out = try await Shell.run(#"printf 'before \351 after\n'"#, cwd: ws.path, timeout: 10)
+        let out = try await Shell.run(#"printf 'before \351 after\n'"#, cwd: ws.path, timeout: 10, sandbox: .current(workspace: ws.path))
         XCTAssertTrue(out.contains("before") && out.contains("after"),
                       "one invalid byte must not blank the output: \(out)")
     }
@@ -327,18 +327,19 @@ final class ScriptedToolCallProtocol: URLProtocol {
     private static let lock = NSLock()
     private static var requests = 0
     private static var command = ""
-    static func reset(command: String) {
-        lock.lock(); requests = 0; Self.command = command; lock.unlock()
+    private static var unsandboxed = false
+    static func reset(command: String, unsandboxed: Bool = false) {
+        lock.lock(); requests = 0; Self.command = command; Self.unsandboxed = unsandboxed; lock.unlock()
     }
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
         Self.lock.lock(); Self.requests += 1
-        let n = Self.requests, cmd = Self.command
+        let n = Self.requests, cmd = Self.command, escape = Self.unsandboxed
         Self.lock.unlock()
         let chunk: [String: Any]
         if n == 1 {
-            let args = JSON.compact(["command": cmd])
+            var fields: [String: Any] = ["command": cmd]; if escape { fields["unsandboxed"] = true }; let args = JSON.compact(fields)
             chunk = ["choices": [["delta": ["tool_calls": [[
                 "index": 0, "id": "call_1", "type": "function",
                 "function": ["name": "bash", "arguments": args]]]]]]]
