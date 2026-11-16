@@ -53,6 +53,12 @@ anything that matters. Some things to know:
   lower settings ask first.
 - Enabling a plugin lets it run any code on your Mac. Only enable plugins you
   have read.
+- MCP servers (Settings → Plugins → MCP servers) are programs you choose to
+  trust. They run outside the sandbox, because things like computer use need
+  Accessibility and Screen Recording access. Their tools follow Tool
+  permissions: tools a server marks read-only count as reads, everything else
+  (clicking, typing, writing) is asked like a shell command. With cua-driver
+  installed, "Add computer use" lets the agent see and operate apps.
 - Commands the agent runs see your environment variables. Variables that
   look like secrets are removed, but anything else is visible to the agent
   and the model provider.

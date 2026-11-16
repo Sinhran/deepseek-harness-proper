@@ -626,6 +626,10 @@ extension StepView {
         case "glob": return "Glob \(args.str("pattern") ?? "")\(within(args.str("path")))"
         case "web_fetch": return args.str("url") ?? "web_fetch"
         case "web_search": return args.str("query") ?? "web_search"
+        case _ where name.hasPrefix("mcp__"):
+            // "computer · click" rather than mcp__computer__call.
+            return MCPHub.shared.displayName(name, arguments: args)
+                ?? name.dropFirst(5).replacingOccurrences(of: "__", with: " · ")
         default:
             // Upstream's fallback kind is "other": the tool's own name. Keep a
             // model-supplied description when there is one (subagents, plugins).

@@ -18,6 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         wc.showWindow(nil)
         wc.window?.makeKeyAndOrderFront(nil)
         if let w = wc.window { reportSessionStorageProblems(in: w) }
+        if !Preview.enabled { MCPHub.shared.startEnabled() }
         if let i = CommandLine.arguments.firstIndex(of: "--probe-divider-drag"),
            i + 1 < CommandLine.arguments.count, let dx = Double(CommandLine.arguments[i + 1]) {
             runDividerDragProbe(dx: CGFloat(dx), wc: wc)
@@ -202,6 +203,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ s: NSApplication) -> Bool { true }
     func applicationWillTerminate(_ notification: Notification) {
+        MCPHub.shared.stopAll()
         mainWindow?.shutdown()
     }
 

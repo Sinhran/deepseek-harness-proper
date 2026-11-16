@@ -37,8 +37,9 @@ final class SettingsWindowController: NSWindowController {
     private let sandboxCaption = SettingsWindowController.caption()
 
     /// Secondary text that wraps instead of truncating.
-    private static func caption() -> WrappingLabel {
+    private static func caption(_ text: String = "") -> WrappingLabel {
         let l = WrappingLabel()
+        l.stringValue = text
         l.font = T.ui(12); l.textColor = T.labelSecondary
         return l
     }
@@ -48,6 +49,8 @@ final class SettingsWindowController: NSWindowController {
     private let appearanceControl = NSSegmentedControl(labels: ["System", "Light", "Dark"], trackingMode: .selectOne, target: nil, action: nil)
     private var observer: NSObjectProtocol?
     private var settingsObserver: NSObjectProtocol?
+    private var mcpObserver: NSObjectProtocol?
+    private var currentSection: Section = .general
     private let contentHost = NSView()
     private var sectionButtons: [Section: ActionButton] = [:]
     private var modelStack: NSStackView?
@@ -121,12 +124,17 @@ final class SettingsWindowController: NSWindowController {
         settingsObserver = NotificationCenter.default.addObserver(forName: .settingsChanged, object: nil, queue: .main) { [weak self] _ in
             self?.syncFields()
         }
+        // Server status changes live (starting → ready → failed).
+        mcpObserver = NotificationCenter.default.addObserver(forName: .mcpChanged, object: nil, queue: .main) { [weak self] _ in
+            if self?.currentSection == .plugins { self?.select(.plugins) }
+        }
         updateStatus()
     }
     required init?(coder: NSCoder) { fatalError() }
     deinit {
         if let observer { NotificationCenter.default.removeObserver(observer) }
         if let settingsObserver { NotificationCenter.default.removeObserver(settingsObserver) }
+        if let mcpObserver { NotificationCenter.default.removeObserver(mcpObserver) }
     }
 
     override func showWindow(_ sender: Any?) {
@@ -204,6 +212,7 @@ final class SettingsWindowController: NSWindowController {
     // MARK: - section switching
 
     func select(_ s: Section) {
+        currentSection = s
         for (sec, b) in sectionButtons {
             b.selected = sec == s
             b.tint = sec == s ? T.labelPrimary : T.labelSecondary
@@ -300,7 +309,9 @@ final class SettingsWindowController: NSWindowController {
         case .agent:
             stack.addArrangedSubview(agentCard())
             stack.addArrangedSubview(sandboxCard())
-        case .plugins: stack.addArrangedSubview(pluginsCard())
+        case .plugins:
+            stack.addArrangedSubview(pluginsCard())
+            stack.addArrangedSubview(mcpCard())
         case .automations: stack.addArrangedSubview(automationsCard())
         case .log: stack.addArrangedSubview(logCard())
         }
@@ -431,6 +442,99 @@ final class SettingsWindowController: NSWindowController {
         rows.append(horizontal([reload, NSView()]))
         let inner = card(rows, spacing: 10)
         return wrapSection(heading("Plugins", "Extensions that add tools and commands."), inner)
+    }
+
+    private func mcpCard() -> NSView {
+        var rows: [NSView] = []
+        let hub = MCPHub.shared
+        if hub.configs.isEmpty {
+            rows.append(SettingsWindowController.caption("No servers yet. MCP servers add tools such as computer use, browsers, or databases."))
+        }
+        for config in hub.configs {
+            let status = Self.mcpStatus(config, hub.connection(config.name))
+            let toggle = NSSwitch()
+            toggle.state = config.enabled ? .on : .off
+            toggle.setAccessibilityLabel("Enable \(config.name)")
+            let name = config.name
+            let restart = ActionButton(symbol: "arrow.clockwise", style: .icon) { hub.restart(name) }
+            restart.toolTip = "Restart"; restart.setAccessibilityLabel("Restart \(name)")
+            restart.isHidden = !config.enabled
+            let remove = ActionButton(symbol: "trash", style: .icon) { [weak self] in self?.confirmRemoveServer(name) }
+            remove.toolTip = "Remove"; remove.setAccessibilityLabel("Remove \(name)")
+            let controls = horizontal([restart, remove, toggle], spacing: 6)
+            controls.alignment = .centerY
+            rows.append(row(name, status, control: controls))
+            toggle.target = self; toggle.action = #selector(mcpToggled(_:))
+            toggle.identifier = NSUserInterfaceItemIdentifier(name)
+        }
+        rows.append(SettingsWindowController.caption("Servers are programs you trust: they run outside the sandbox. Their tools follow Tool permissions; tools marked read-only count as reads."))
+        var buttons: [NSView] = []
+        if let preset = MCPHub.computerUsePreset, !hub.configs.contains(where: { $0.command == preset.command }) {
+            buttons.append(ActionButton("Add computer use", symbol: "cursorarrow.click.2", style: .filled) {
+                hub.upsert(preset)
+            })
+        }
+        buttons.append(ActionButton("Add server…", symbol: "plus", style: .filled) { [weak self] in self?.promptAddServer() })
+        buttons.append(ActionButton("Edit mcp.json", symbol: "doc.text", style: .filled) {
+            if !FileManager.default.fileExists(atPath: MCPHub.configFile.path) {
+                try? Data("{\n  \"mcpServers\": {}\n}\n".utf8).write(to: MCPHub.configFile)
+            }
+            NSWorkspace.shared.open(MCPHub.configFile)
+        })
+        rows.append(horizontal(buttons + [NSView()], spacing: 8))
+        return wrapSection(heading("MCP servers", "Tools from Model Context Protocol servers."), card(rows, spacing: 10))
+    }
+
+    private static func mcpStatus(_ config: MCPServerConfig, _ c: MCPConnection?) -> String {
+        guard config.enabled else { return "Off" }
+        switch c?.state ?? .stopped {
+        case .stopped, .starting: return "Starting…"
+        case .failed(let why): return "Failed: \(why)"
+        case .ready:
+            let tools = c?.tools ?? []
+            let deferred = MCPHub.schemaSize(tools) > MCPHub.directBudget
+            return "\(tools.count) tool\(tools.count == 1 ? "" : "s")" + (deferred ? " · loaded on demand" : "")
+        }
+    }
+
+    @objc private func mcpToggled(_ sender: NSSwitch) {
+        guard let name = sender.identifier?.rawValue,
+              var config = MCPHub.shared.configs.first(where: { $0.name == name }) else { return }
+        config.enabled = sender.state == .on
+        MCPHub.shared.upsert(config)
+    }
+
+    private func confirmRemoveServer(_ name: String) {
+        let alert = NSAlert()
+        alert.messageText = "Remove \(name)?"
+        alert.informativeText = "Its tools stop being available to the agent. This doesn't uninstall the program."
+        alert.addButton(withTitle: "Remove"); alert.addButton(withTitle: "Cancel")
+        alert.buttons.first?.hasDestructiveAction = true
+        guard let window else { return }
+        alert.beginSheetModal(for: window) { r in if r == .alertFirstButtonReturn { MCPHub.shared.remove(name) } }
+    }
+
+    private func promptAddServer() {
+        let alert = NSAlert()
+        alert.messageText = "Add MCP server"
+        alert.informativeText = "The command starts a server that speaks MCP over stdio. Environment variables can be added in mcp.json."
+        let name = NSTextField(), command = NSTextField()
+        name.placeholderString = "Name, e.g. github"
+        command.placeholderString = "Command, e.g. npx -y @modelcontextprotocol/server-github"
+        for f in [name, command] { f.translatesAutoresizingMaskIntoConstraints = false; f.widthAnchor.constraint(equalToConstant: 360).isActive = true }
+        let stack = vertical([name, command], spacing: 8)
+        stack.frame = NSRect(x: 0, y: 0, width: 360, height: 56)
+        alert.accessoryView = stack
+        alert.addButton(withTitle: "Add"); alert.addButton(withTitle: "Cancel")
+        alert.window.initialFirstResponder = name
+        guard let window else { return }
+        alert.beginSheetModal(for: window) { r in
+            guard r == .alertFirstButtonReturn else { return }
+            let words = MCPHub.splitCommandLine(command.stringValue)
+            let n = name.stringValue.trimmingCharacters(in: .whitespaces)
+            guard !n.isEmpty, let exe = words.first else { return }
+            MCPHub.shared.upsert(MCPServerConfig(name: n, command: exe, args: Array(words.dropFirst())))
+        }
     }
 
     private func automationsCard() -> NSView {

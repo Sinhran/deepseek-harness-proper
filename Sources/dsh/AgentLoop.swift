@@ -364,6 +364,7 @@ final class AgentLoop {
         let allowed = allowedTools ?? AgentProfiles.profile(id: Settings.shared.agentProfile).nativeTools
         var specs = Tools.all().filter { allowed.contains($0.spec.name) }.map { $0.spec }
         specs += PluginEngine.shared.agentToolSpecs()
+        specs += MCPHub.shared.toolSpecs()
         if let only = allowedTools { specs = specs.filter { only.contains($0.name) } }
         return specs
     }
@@ -387,6 +388,15 @@ final class AgentLoop {
                 throw ToolError.failed("plugin tool unavailable: \(name)")
             }
             return result
+        }
+        // MCP server tool? Read-only ones approve like reads, the rest
+        // (clicks, typing, writes) like shell.
+        if MCPHub.shared.owns(name) {
+            if Tools.category(MCPHub.shared.category(name, arguments: args), needsApproval: autonomy),
+               !(await approve(MCPHub.shared.displayName(name, arguments: args) ?? name, Self.summarize(call: call))) {
+                throw ToolError.denied
+            }
+            return try await MCPHub.shared.call(name, arguments: args)
         }
         guard let tool = Tools.all().first(where: { $0.spec.name == name }) else {
             throw ToolError.failed("unknown tool \(name)")

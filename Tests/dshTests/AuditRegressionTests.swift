@@ -328,21 +328,29 @@ final class ScriptedToolCallProtocol: URLProtocol {
     private static var requests = 0
     private static var command = ""
     private static var unsandboxed = false
+    private static var toolName = "bash"
+    private static var toolArgs: [String: Any]? = nil
     static func reset(command: String, unsandboxed: Bool = false) {
-        lock.lock(); requests = 0; Self.command = command; Self.unsandboxed = unsandboxed; lock.unlock()
+        lock.lock(); requests = 0; Self.command = command; Self.unsandboxed = unsandboxed
+        toolName = "bash"; toolArgs = nil; lock.unlock()
+    }
+    /// Script a call to any tool with explicit arguments.
+    static func reset(toolName: String, arguments: [String: Any]) {
+        lock.lock(); requests = 0; Self.toolName = toolName; toolArgs = arguments; lock.unlock()
     }
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
         Self.lock.lock(); Self.requests += 1
         let n = Self.requests, cmd = Self.command, escape = Self.unsandboxed
+        let scriptedName = Self.toolName, scriptedArgs = Self.toolArgs
         Self.lock.unlock()
         let chunk: [String: Any]
         if n == 1 {
-            var fields: [String: Any] = ["command": cmd]; if escape { fields["unsandboxed"] = true }; let args = JSON.compact(fields)
+            var fields: [String: Any] = scriptedArgs ?? ["command": cmd]; if escape { fields["unsandboxed"] = true }; let args = JSON.compact(fields)
             chunk = ["choices": [["delta": ["tool_calls": [[
                 "index": 0, "id": "call_1", "type": "function",
-                "function": ["name": "bash", "arguments": args]]]]]]]
+                "function": ["name": scriptedName, "arguments": args]]]]]]]
         } else {
             chunk = ["choices": [["delta": ["content": "done"]]]]
         }

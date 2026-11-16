@@ -55,9 +55,16 @@ final class Settings {
     static let sidebarWidthRange: ClosedRange<CGFloat> = 220...360
     static let inspectorWidthRange: ClosedRange<CGFloat> = 240...400
     /// XCTest runs must never touch the real Keychain, defaults, or home dir.
-    static var isTestRun: Bool {
-        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
-    }
+    /// True under any XCTest runner. Xcode sets XCTestConfigurationFilePath;
+    /// `swift test` (make smoke, CI) does not, so also check for the xctest
+    /// host and the XCTest runtime. Missing one of these once let the tests
+    /// read and write the real Application Support folder and Keychain.
+    static let isTestRun: Bool = {
+        let info = ProcessInfo.processInfo
+        return info.environment["XCTestConfigurationFilePath"] != nil
+            || info.processName == "xctest"
+            || NSClassFromString("XCTestCase") != nil
+    }()
     /// Default workspace: strictly inside the home directory but never the
     /// home directory itself — defaulting to $HOME would make the file tools'
     /// "confined to the workspace" model no confinement at all.
